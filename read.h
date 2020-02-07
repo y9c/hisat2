@@ -57,12 +57,15 @@ struct Read {
 		trimmed5 = trimmed3 = 0;
 		readOrigBuf.clear();
 		patFw.clear();
+		patFw1.clear();
 		patRc.clear();
 		qual.clear();
 		patFwRev.clear();
 		patRcRev.clear();
 		qualRev.clear();
 		name.clear();
+		originalFw.clear();
+		originalRc.clear();
 		for(int j = 0; j < 3; j++) {
 			altPatFw[j].clear();
 			altPatFwRev[j].clear();
@@ -77,8 +80,9 @@ struct Read {
 		filter = '?';
 		seed = 0;
 		ns_ = 0;
+		plan = 'A';
 	}
-	
+
 	/**
 	 * Finish initializing a new read.
 	 */
@@ -92,6 +96,25 @@ struct Read {
 		constructReverses();
 	}
 
+    // use pathFW1 for alignment
+    void planB(){
+
+        if(name.length()>0){
+            ns_ = 0;
+            swap(patFw, patFw1);
+            //patFw = patFw1;
+            //name.insert('*', 0);
+            plan = 'B';
+            finalize();
+        }
+
+    }
+
+    bool isPlanA(){
+	    if (plan == 'A')
+	        return true;
+	    return false;
+	}
 	/**
 	 * Simple init function, used for testing.
 	 */
@@ -136,16 +159,19 @@ struct Read {
 	 * them.
 	 */
 	void constructRevComps() {
+
 		if(color) {
-			patRc.installReverse(patFw);
+			patRc.installReverse(patFw1);
 			for(int j = 0; j < alts; j++) {
 				altPatRc[j].installReverse(altPatFw[j]);
 			}
+            originalRc.installReverse(originalFw);
 		} else {
-			patRc.installReverseComp(patFw);
+			patRc.installReverseComp(patFw1);
 			for(int j = 0; j < alts; j++) {
 				altPatRc[j].installReverseComp(altPatFw[j]);
 			}
+            originalRc.installReverseComp(originalFw);
 		}
 	}
 
@@ -323,8 +349,12 @@ struct Read {
 #endif
 
 	BTDnaString patFw;            // forward-strand sequence
-	BTDnaString patRc;            // reverse-complement sequence
+    BTDnaString patFw1;
+    BTDnaString patRc;            // reverse-complement sequence
+    BTDnaString patRc1;
 	BTString    qual;             // quality values
+    BTDnaString originalFw;       // the forward-strand sequence from read (without editing)
+    BTDnaString originalRc;       // the reverse-complement sequence from read (without editing)
 
 	BTDnaString altPatFw[3];
 	BTDnaString altPatRc[3];
@@ -341,7 +371,7 @@ struct Read {
 	// For remembering the exact input text used to define a read
 	SStringExpandable<char> readOrigBuf;
 
-	BTString name;      // read name
+	BTString name;      // read nameplanB
 	TReadId  rdid;      // 0-based id based on pair's offset in read file(s)
 	TReadId  endid;     // 0-based id based on pair's offset in read file(s)
 	                    // and which mate ("end") this is
@@ -357,6 +387,8 @@ struct Read {
 	int      trimmed5;  // amount actually trimmed off 5' end
 	int      trimmed3;  // amount actually trimmed off 3' end
 	HitSet  *hitset;    // holds previously-found hits; for chaining
+
+	char plan;          // which plan is it. Default is plan A.
 };
 
 /**

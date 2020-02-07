@@ -256,6 +256,9 @@ public:
 	 */
 	TReadId readCnt() const { return readCnt_ - 1; }
 
+    int paired_type; // 1 - left or unpaird, 2-right
+    int align_times = 0;
+
 protected:
 
 	uint32_t seed_;
@@ -517,6 +520,14 @@ public:
 
 	virtual ~PatternSourcePerThread() { }
 
+    bool isPlanA;
+
+	void planB(){
+	    buf1_.planB();
+        buf2_.planB();
+        isPlanA = false;
+	}
+
 	/**
 	 * Read the next read pair.
 	 */
@@ -526,6 +537,7 @@ public:
 		bool& paired,
 		bool fixName)
 	{
+	    isPlanA = true;
 		return success;
 	}
 

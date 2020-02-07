@@ -3963,7 +3963,7 @@ template <typename index_t, typename local_index_t>
 class HI_Aligner {
 
 public:
-	
+
 	/**
 	 * Initialize with index.
 	 */
@@ -3983,7 +3983,9 @@ public:
             _minK++;
         }
         _minK_local = 8;
+
     }
+
     
     HI_Aligner() {
     }
@@ -4089,7 +4091,7 @@ public:
                 // if(sink.bestPair() >= _minsc[0] + _minsc[1]) break;
             }
         }
-        
+
         // if no concordant pair is found, try to use alignment of one-end
         // as an anchor to align the other-end
         if(this->_paired) {
@@ -4153,8 +4155,10 @@ public:
         bool perform_repeat_alignment = false;
         
         index_t indexIdx[2] = {0, 0};
+
 #if 1
         if(rgfm != NULL && !((RFM<index_t>*)rgfm)->empty()) {
+
             // use repeat index to decide whether a read or a pair is from repetitive sequences
             indexIdx[0] = ((RFM<index_t>*)rgfm)->getLocalRFM_idx((*_rds)[0].length());
             if(_paired) {
@@ -4251,7 +4255,7 @@ public:
                 }
             }
             
-            while(nextBWT(sc, pepol, tpol, gpol, rfm, altdb, ref, rdi, fw, wlm, prm, him, rnd, sink));
+            while(nextBWT(sc, pepol, tpol, gpol, rfm, altdb, *rref, rdi, fw, wlm, prm, him, rnd, sink));
             for(size_t rdi = 0; rdi < (_paired ? 2 : 1); rdi++) {
                 for(size_t fwi = 0; fwi < 2; fwi++) {
                     if(skip_repeat[rdi][fwi]) continue;
@@ -4260,7 +4264,7 @@ public:
                     assert_gt(offsetSize, 0);
                     for(size_t hi = 0; hi < offsetSize; hi++) {
                         BWTHit<index_t>& partialHit = hit.getPartialHit(hi);
-                        if(partialHit.len() >= (_minK << 1)) {
+                        if(partialHit.len() >= (rref->getMinK() << 1)) {
                             repeat[rdi][fwi] = true;
                             perform_repeat_alignment = true;
                             break;
@@ -5371,8 +5375,8 @@ public:
      **/
     void addSearched(const GenomeHit<index_t>&       hit,
                      index_t                         rdi);
-    
-    
+
+
 protected:
   
     Read *   _rds[2];
@@ -5501,6 +5505,7 @@ bool HI_Aligner<index_t, local_index_t>::align(
                                                RandomSource&                    rnd,
                                                AlnSinkWrap<index_t>&            sink)
 {
+
     const ReportingParams& rp = sink.reportingParams();
     index_t fwi = (fw ? 0 : 1);
     assert_lt(rdi, 2);
@@ -6131,7 +6136,7 @@ bool HI_Aligner<index_t, local_index_t>::reportHit(
                  hit.ns(),          // # Ns
                  hit.ngaps(),       // # gaps
                  hit.repeat(),
-                 hit.splicescore(), // splice score
+                 hit.splicescore(), // splice scorehit
                  spliced.second,    // mapped to known transcripts?
                  spliced.first,     // spliced alignment or near splice sites (novel)?
                  hit.trim5(),       // left trim length
@@ -6175,7 +6180,7 @@ bool HI_Aligner<index_t, local_index_t>::reportHit(
     
 
     //rs.setRefNs(nrefn);
-    assert(rs.matchesRef(
+    /*assert(rs.matchesRef(
                          rd,
                          ref,
                          tmp_rf_,
@@ -6186,7 +6191,7 @@ bool HI_Aligner<index_t, local_index_t>::reportHit(
                          raw_matches_,
                          _sharedVars.raw_refbuf2,
                          _sharedVars.reflens,
-                         _sharedVars.refoffs));
+                         _sharedVars.refoffs));*/
     if(ohit == NULL) {
         bool done;
         if(rdi == 0 && !_rightendonly) {
