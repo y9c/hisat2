@@ -1296,6 +1296,16 @@ def find_in_gtf_junctions(chr_dic, gtf_junctions, junction, relax_dist = 5):
     return -1
 
 
+def singleInMaps(chr, pos, pos2, cigar, NM, maps):
+    for i in range(len(maps)):
+        if chr != maps[i][0]:
+            continue
+        if (pos == maps[i][1] or pos2 == maps[i][2]):
+            return True, i
+    return False, -1
+
+
+
 """
 """
 def compare_single_sam(RNA,
@@ -1305,7 +1315,8 @@ def compare_single_sam(RNA,
                        chr_dic,
                        gtf_junctions,
                        gtf_junctions_set,
-                       ex_gtf_junctions):
+                       ex_gtf_junctions,
+                       aligner):
     aligned, multi_aligned = 0, 0
     db_dic, db_junction_dic = {}, {}
     mapped_file = open(mapped_fname, "w")
@@ -1457,10 +1468,17 @@ def compare_single_sam(RNA,
         maps = db_dic[read_name]
         found = False
         found_at_first = False
-        if [chr, pos, pos2, cigar, NM] in maps:
-            found = True
-            if maps.index([chr, pos, pos2, cigar, NM]) == 0:
-                found_at_first = True
+
+        if (aligner == "hisat-TLA" and RNA):
+            found, index = singleInMaps(chr, pos, pos2, cigar, NM, maps)
+            if found:
+                if index == 0:
+                    found_at_first = True
+        else:
+            if [chr, pos, pos2, cigar, NM] in maps:
+                found = True
+                if maps.index([chr, pos, pos2, cigar, NM]) == 0:
+                    found_at_first = True
 
         # DK - debugging purposes
         if False and len(maps) > 0 and maps[0][-1] < NM:
@@ -1505,7 +1523,6 @@ def compare_single_sam(RNA,
                 first_mapped += 1
                 if snp_included:
                     snp_first_mapped += 1
-
             mapping_point += (1.0 / len(maps))
         else:
             unmapped += 1
@@ -1534,6 +1551,14 @@ def compare_single_sam(RNA,
            len(temp_junctions), len(temp_gtf_junctions), mapping_point
 
 
+
+def pairedInMaps(chr, pos, pos_right, cigar, pos2, pos2_right, cigar2, NM, NM2, maps):
+    for i in range(len(maps)):
+        if chr != maps[i][0]:
+            continue;
+        if (pos == maps[i][1] or pos2_right == maps[i][2]) and (pos2 == maps[i][4] or pos2_right == maps[i][5]):
+            return True, i
+    return False, -1
 """
 """
 def compare_paired_sam(RNA,
@@ -1543,7 +1568,8 @@ def compare_paired_sam(RNA,
                        chr_dic,
                        gtf_junctions,
                        gtf_junctions_set,
-                       ex_gtf_junctions):
+                       ex_gtf_junctions,
+                       aligner):
     aligned, multi_aligned = 0, 0
     db_dic, db_junction_dic, junction_pair_dic = {}, {}, {}
     mapped_file = open(mapped_fname, "w")
@@ -1570,6 +1596,7 @@ def compare_paired_sam(RNA,
 
         pos_right, pos2_right = get_right(pos, cigar), get_right(pos2, cigar2)
         db_dic[read_name].append([chr, pos, pos_right, cigar, pos2, pos2_right, cigar2, NM, NM2])
+
 
         pair_junctions = is_junction_pair(gtf_junctions_set, chr, pos, cigar, chr2, pos2, cigar2)
         if len(pair_junctions) > 0:
@@ -1729,10 +1756,17 @@ def compare_paired_sam(RNA,
         found = False
         found_at_first = False
 
-        if [chr, pos, pos_right, cigar, pos2, pos2_right, cigar2, NM, NM2] in maps:
-            found = True
-            if maps.index([chr, pos, pos_right, cigar, pos2, pos2_right, cigar2, NM, NM2]) == 0:
-                found_at_first = True
+
+        if (aligner == "hisat-TLA" and RNA) :
+            found, index = pairedInMaps(chr, pos, pos_right, cigar, pos2, pos2_right, cigar2, NM, NM2, maps)
+            if (found):
+                if (index == 0):
+                    found_at_first = True;
+        else:
+            if [chr, pos, pos_right, cigar, pos2, pos2_right, cigar2, NM, NM2] in maps:
+                found = True
+                if maps.index([chr, pos, pos_right, cigar, pos2, pos2_right, cigar2, NM, NM2]) == 0:
+                    found_at_first = True
 
         # DK - debugging purposes
         if False and len(maps) > 0 and maps[0][-1] + maps[0][-2] < NM + NM2:
@@ -1962,8 +1996,8 @@ def calculate_read_cost(single_end,
         create_sql_db(sql_db_name)
 
     num_cpus = multiprocessing.cpu_count()
-    if num_cpus > 6:
-        num_threads = min(6, num_cpus)
+    if num_cpus > 10:
+        num_threads = min(10, num_cpus)
         desktop = False
     else:
         num_threads = min(3, num_cpus)
@@ -1985,8 +2019,8 @@ def calculate_read_cost(single_end,
         # ["hisat2", "", "tran", "210", ""],
         # ["hisat2", "", "snp_tran", "210", ""],
         # ["hisat2", "", "", "210", ""],
-        # ["hisat2", "", "", "", ""],
-        ["hisat2", "", "rep", "", ""],
+        ["hisat2", "", "", "", ""],
+        #["hisat2", "", "rep", "", ""],
         # ["hisat2", "", "rep-100-300", "", ""],
         # ["hisat2", "", "rep_mm", "", ""],
         # ["hisat2", "", "", "", "--sensitive"],
@@ -2003,16 +2037,16 @@ def calculate_read_cost(single_end,
         # ["hisat2", "x1", "snp_tran_ercc", "", ""],
         # ["tophat2", "gtfonly", "", "", ""],
         # ["tophat2", "gtf", "", "", ""],
-        ["star", "", "", "", ""],
+        #["star", "", "", "", ""],
         # ["star", "x2", "", "", ""],
         # ["star", "gtf", "", "", ""],
         # ["bowtie", "", "", "", ""],
-        ["bowtie2", "", "", "", ""],
+        #["bowtie2", "", "", "", ""],
         # ["bowtie2", "", "", "", "-k 10"],
         # ["bowtie2", "", "", "", "-k 1000 --extends 2000"],
         # ["gsnap", "", "", "", ""],
         # ["bwa", "mem", "", "", ""],
-        ["bwa", "mem", "", "", "-a"],
+        #["bwa", "mem", "", "", "-a"],
         # ["hisat2", "", "snp", "", ""],
         # ["hisat2", "", "tran", "", ""],
         # ["hisat2", "", "snp_tran", "", ""],
@@ -2224,7 +2258,7 @@ def calculate_read_cost(single_end,
                         cmd += ["-1", read1_fname,
                                 "-2", read2_fname]
                     else:
-                        cmd += [read1_fname]
+                        cmd += ["-U", read1_fname]
 
                     cmd += ["--TLA"]
                     cmd += ["--base-change"]
@@ -2525,7 +2559,7 @@ def calculate_read_cost(single_end,
                     start_time = datetime.now()
                     if verbose:
                         print >> sys.stderr, "\t", start_time, " ".join(aligner_cmd)
-                    if aligner in ["hisat2", "hisat", "bowtie", "bowtie2", "gsnap", "bwa", "vg", "minimap2"]:
+                    if aligner in ["hisat2", "hisat", "bowtie", "bowtie2", "gsnap", "bwa", "vg", "minimap2", "hisat-TLA"]:
                         proc = subprocess.Popen(aligner_cmd, stdout=open(out_fname, "w"), stderr=subprocess.PIPE)
                     else:
                         proc = subprocess.Popen(aligner_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -2666,12 +2700,12 @@ def calculate_read_cost(single_end,
                         mapped, unique_mapped, first_mapped, unmapped, aligned, multi_aligned, \
                         snp_mapped, snp_unique_mapped, snp_first_mapped, snp_unmapped, \
                         temp_junctions, temp_gtf_junctions, mapping_point \
-                            = compare_paired_sam(RNA, out_fname2, "../" + type_sam_fname2, mapped_id_fname, chr_dic, junctions, junctions_set, gtf_junctions)
+                            = compare_paired_sam(RNA, out_fname2, "../" + type_sam_fname2, mapped_id_fname, chr_dic, junctions, junctions_set, gtf_junctions, aligner)
                     else:
                         mapped, unique_mapped, first_mapped, unmapped, aligned, multi_aligned, \
                         snp_mapped, snp_unique_mapped, snp_first_mapped, snp_unmapped, \
                         temp_junctions, temp_gtf_junctions, mapping_point \
-                            = compare_single_sam(RNA, out_fname2, "../" + type_sam_fname2, mapped_id_fname, chr_dic, junctions, junctions_set, gtf_junctions)
+                            = compare_single_sam(RNA, out_fname2, "../" + type_sam_fname2, mapped_id_fname, chr_dic, junctions, junctions_set, gtf_junctions, aligner)
                     proc = subprocess.Popen(["wc", "-l", "../" + type_read_fname2], stdout=subprocess.PIPE)
                     out = proc.communicate()[0]
                     numreads = int(out.split()[0]) / 2

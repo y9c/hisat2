@@ -17,7 +17,6 @@
 #include "outq.h"
 #include <unistd.h>
 #include <queue>
-//#include "aln_sink.h"
 
 class ReferenceGenome;
 extern ReferenceGenome reference;
@@ -180,13 +179,11 @@ public:
     int pairScore;
     long long int pairToLocation;
     bool concordant;
-    bool outputed;
 
     RepeatPosition(long long int &inputLocation, string &inputChromosome):location(inputLocation), chromosome(inputChromosome) {
         pairScore = numeric_limits<int>::min();
         pairToLocation = -1;
         concordant = false;
-        outputed = false;
     }
 };
 
@@ -297,19 +294,6 @@ public:
         return false;
     }
 
-    bool positionExist (long long int &location, string &chromosome, int pairSegment) {
-        // return true if position is exist, else, return false.
-        for (int i = 0; i < positions.size(); i++) {
-            if ((positions[i].pairSegment == pairSegment) &&
-                (positions[i].location == location) &&
-                (positions[i].chromosome == chromosome)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-
     void appendRepeat(string &chromosome, long long int &location, int &index) {
         positions[index].addRepeatPosition(location, chromosome);
     }
@@ -369,8 +353,6 @@ public:
 };
 
 
-
-
 class Alignment {
 public:
     BTString readName;
@@ -387,7 +369,6 @@ public:
 
     BTString originalFw;
     BTString readQualityFw;
-
 
     //tags
     int AS; // alignment score
@@ -406,7 +387,6 @@ public:
     BTString unChangedTags;
 
     // intermediate variable
-    int currentReadLocation;
     long long int* refLocations = nullptr;
     char* locationPointer;
     bool planA;
@@ -451,7 +431,6 @@ public:
         unChangedTags.clear();
 
         bestAS = numeric_limits<int>::min();
-        currentReadLocation = 0;
         repeat = false;
         pairToRepeat = false;
         nBestRepeat = 0;
@@ -469,9 +448,6 @@ public:
         }
     }
 
-    /*Alignment(bool &isPlanA) : planA(isPlanA) {
-        initialize();
-    }*/
     Alignment() {
         initialize();
     }
@@ -507,7 +483,6 @@ public:
             flag += 256;
         }
         primaryAlignment = false;
-        //secondaryMapping = (flag & 256) != 0;
         mapped = (flag & 4) == 0;
         if (flag & 128) {
             pairSegment = 1;
@@ -555,8 +530,7 @@ public:
         RA_Array[RA_Map(ref)][RA_Map(read)]++;
     }
 
-    void updateMP(char read, char ref) {
-        // update extra MP tag
+    void updateMP(int readLocation, char read, long long int refLocation, char ref) {
         char buf[1024];
         if (!MP.empty()) {
             MP.append(",");
@@ -564,132 +538,11 @@ public:
         itoa10<int>(RA_Map(ref) * 5 + RA_Map(read), buf);
         MP.append(buf);
         MP.append(":");
-        itoa10<int>(currentReadLocation + 1, buf);
+        itoa10<int>(readLocation + 1, buf);
         MP.append(buf);
         MP.append(":");
-        itoa10<int>(refLocations[currentReadLocation] + 1, buf);
+        itoa10<int>(refLocation + 1, buf);
         MP.append(buf);
-    }
-
-    void matchReadRefLocations(string &readSequence) {
-        // for each base in read sequence, find where does is match to reference (chromosome + location) location.
-
-        if (refLocations == nullptr) {
-            refLocations = (long long int*) malloc(readSequence.size() * sizeof(long long int));
-        } else {
-            return;
-        }
-
-        vector<Cigar> ciagarSegments = getCigarSegments(cigarString.toZBuf());
-        int refLocation = 0;
-        int readLocation = 0;
-
-        for (int i = 0; i < ciagarSegments.size(); i++) {
-            char label = ciagarSegments[i].getLabel();
-            int len = ciagarSegments[i].getLen();
-
-            if (label == 'I') {
-                for (int j = 0; j < len; j++) {
-                    *(refLocations + readLocation) = -1;
-                    readLocation++;
-                }
-            } else if (label == 'M') {
-                for (int j = 0; j < len; j++) {
-                    *(refLocations + readLocation) = refLocation;
-                    readLocation++;
-                    refLocation++;
-                }
-            } else if (label == 'D') {
-                refLocation += len;
-            } else if (label == 'S') {
-                for (int j = 0; j < len; j++) {
-                    *(refLocations + readLocation) = -1;
-                    readLocation++;
-                }
-                if (i == 0) {
-                    currentReadLocation += len;
-                }
-            } else if (label == 'N') {
-                refLocation += len;
-            }
-        }
-    }
-
-    bool findConvertedMismatch(string &readSequence, int len, string& newMD_String, int &nIncorrectMatch) {
-        // return true, if the read is mapped to correct location.
-        // return false, if the read is mapped to incorrect location.
-
-
-        int matchCount = 0;
-        bool mismatch;
-
-        if (isalpha(newMD_String.back())){
-            //newMD_String += '0';
-            mismatch = true;
-        } else {
-            mismatch = false;
-        }
-
-        //int nIncorrectMatch = 0;
-
-        for (int i = 0; i < len; i++) {
-            char readBase = readSequence[currentReadLocation];
-            char ref = *(locationPointer + refLocations[currentReadLocation]);
-
-            if (readBase == ref || readBase == 'N' || ref == 'N') { // match
-                matchCount++;
-                mismatch = false;
-            } else if (readBase == convertedTo && ref == convertedFrom && planA) {
-                if (mismatch) {
-                    newMD_String += '0';
-                }
-                if (matchCount>0) {
-                    newMD_String += to_string(matchCount);
-                    matchCount = 0;
-                }
-                newMD_String += ref;
-                mismatch = true;
-                TC++;
-                updateMP(readBase, ref);
-            } else if (readBase == convertedToComplement && ref == convertedFromComplement && !planA) {
-                if (mismatch) {
-                    newMD_String += '0';
-                }
-                if (matchCount>0) {
-                    newMD_String += to_string(matchCount);
-                    matchCount = 0;
-                }
-                newMD_String += ref;
-                mismatch = true;
-                TC++;
-                updateMP(readBase, ref);
-            } else {
-                nIncorrectMatch++;
-                if (nIncorrectMatch > incorrectTolerance) {
-                    return false;
-                }
-
-                if (mismatch) {
-                    newMD_String += '0';
-                }
-                if (matchCount > 0) {
-                    newMD_String += to_string(matchCount);
-                    matchCount = 0;
-                }
-                newMD_String += ref;
-                mismatch = true;
-                //TC++;
-                updateMP(readBase, ref);
-            }
-
-            updateRA(readBase, ref);
-            currentReadLocation++;
-
-        }
-        if (matchCount>0) {
-            newMD_String += to_string(matchCount);
-        }
-        return true;
     }
 
     void clearExtraTags() {
@@ -700,7 +553,6 @@ public:
                 RA_Array[i][j] = 0;
             }
         }
-        currentReadLocation = 0;
     }
 
     bool constructRepeatMD(MappingPositions &existPositions) {
@@ -746,7 +598,7 @@ public:
 
             string newMD;
             int nIncorrectMatch = 0;
-            if (!constructMD(chromosomeRepeat, locationRepeat, readSequence_string, newMD, nIncorrectMatch)) {
+            if (!constructMD(readSequence_string, newMD, nIncorrectMatch)) {
                 continue;
             }
 
@@ -778,203 +630,177 @@ public:
         }
     }
 
-    bool constructMD(string &chromosomeRepeat, long long int &locationRepeat, string &readSequence_string,
-            string &newMD_String, int &nIncorrectMatch) {
+    bool constructMD(string &readSequence_string, string &newMD_String, int &nIncorrectMatch) {
         // construct new MD string, this function if for repeat read
         // return true, if the read is mapped to correct location.
         // return false, if the read is mapped to incorrect location.
-        //extractFlagInfo();
 
+        vector<Cigar> cigarSegments = getCigarSegments(cigarString.toZBuf());
 
-        string MD_String = MD.toZBuf();
-        //string newMD_String;
-        bool del = false;
-        string currentString;
+        int readPos = 0;
+        long long int refPos = 0;
+        int count = 0;
+        int newXM = 0;
 
+        char cigarSymbol;
+        int cigarLen;
+        for (int i = 0; i < cigarSegments.size(); i++) {
+            cigarSymbol = cigarSegments[i].getLabel();
+            cigarLen = cigarSegments[i].getLen();
 
-        //int nIncorrectMatch = 0;
-        //string readSequence_string = readSequence.toZBuf();
-        matchReadRefLocations(readSequence_string);
-
-        char MD_char;
-        for (int i = 0; i < MD_String.size(); i++) {
-            MD_char = MD_String[i];
-            if (del) {
-                if (isalpha(MD_char)){ //continues deletion
-                    newMD_String += MD_char;
-                    //currentReadLocation++;
-                    continue;
-                } else if (MD_char == '0') { //deletion stoped, will have mismatch next base
-                    newMD_String += MD_char;
-                    del = false;
-                    continue;
-                } else { // deletion stoped, will have match next base
-                    currentString += MD_char;
-                    del = false;
-                }
-            }
-            else {
-                if (isalpha(MD_char)){ // mismatch
-                    if (currentString.size() != 0) {
-                        if (isalpha(newMD_String.back())){
+            if (cigarSymbol == 'S') {
+                readPos += cigarLen;
+            } else if (cigarSymbol == 'N') {
+                refPos += cigarLen;
+            } else if (cigarSymbol == 'M') {
+                for (int j = 0; j < cigarLen; j++) {
+                    char readChar = readSequence_string[readPos];
+                    char refChar = *(locationPointer + refPos);
+                    if (readChar == refChar || readChar == 'N' || refChar == 'N') {
+                        count++;
+                    } else {// mismatch
+                        // output matched count
+                        if (count != 0) {
+                            newMD_String += to_string(count);
+                            count = 0;
+                        }
+                        // output mismatch
+                        if (!newMD_String.empty() && isalpha(newMD_String.back())) {
                             newMD_String += '0';
                         }
-                        if (!findConvertedMismatch(readSequence_string, stoi(currentString), newMD_String, nIncorrectMatch)) {
-                            return false;
+                        if (((readChar == convertedTo) && (refChar == convertedFrom) && planA) ||
+                            ((readChar == convertedToComplement) && (refChar == convertedFromComplement) && !planA)) {
+                            // converted base, output to MD, do not count as mismatch
+                            newMD_String += refChar;
+                            TC++;
+                        } else {
+                            // real mismatch
+                            newMD_String += refChar;
+                            newXM++;
+                            if (newXM - XM > incorrectTolerance) {
+                                return false;
+                            }
                         }
+                        updateMP(refPos, readChar, refPos, refChar);
                     }
-                    char ref = MD_char;
-                    newMD_String += ref;
+                    updateRA(readChar, refChar);
 
-                    updateRA(readSequence[currentReadLocation], ref);
-                    updateMP(readSequence[currentReadLocation], ref);
-
-                    currentString = "";
-
-                    currentReadLocation++;
-                } else if(isdigit(MD_char)){ // could be match or 0 in bewtween letters.
-                    if (MD_char == '0') {
-                        if (currentString.size() == 0) { // 0 in bewtween letters
-                            newMD_String += MD_char;
-                            continue;
-                        }
-                    }
-                    currentString += MD_char;
-                    continue;
-                } else { // MD_String[i] == "^", deletion started
-                    del = true;
-                    if (isalpha(newMD_String.back())){
-                        newMD_String += '0';
-                    }
-                    if (!currentString.empty()) {
-                        if (!findConvertedMismatch(readSequence_string, stoi(currentString), newMD_String, nIncorrectMatch)) {
-                            return false;
-                        }
-                    }
-
-                    newMD_String += MD_char;
-                    currentString = "";
-                    continue;
+                    readPos++;
+                    refPos++;
+                }
+            } else if (cigarSymbol == 'I') {
+                readPos += cigarLen;
+            } else if (cigarSymbol == 'D') {
+                newMD_String += '^';
+                for (int j = 0; j < cigarLen; j++) {
+                    newMD_String += *(locationPointer + refPos);
+                    refPos++;
                 }
             }
         }
-        if (!currentString.empty()) {
-            if (!findConvertedMismatch(readSequence_string, stoi(currentString), newMD_String, nIncorrectMatch)) {
-                return false;
-            }
-        }
-        if (nIncorrectMatch > incorrectTolerance) {
-            return false;
-        }
 
-        /*NM += nIncorrectMatch;
-        XM += nIncorrectMatch;
-        AS = AS - 5*nIncorrectMatch;
-        MD = newMD_String;*/
-
+        if (count != 0) {
+            newMD_String += to_string(count);
+        }
+        if (isalpha(newMD_String.front())) {
+            newMD_String = '0' + newMD_String;
+        }
+        if (isalpha(newMD_String.back())) {
+            newMD_String += '0';
+        }
 
         return true;
     }
 
     bool constructMD() {
-        // construct new MD string
-        // return true, if the read is mapped to correct location.
-        // return false, if the read is mapped to incorrect location.
-        //extractFlagInfo();
-
         if (!mapped) {
             return true;
         }
-
-        if (repeat) {
-
-        }
-
-        string MD_String = MD.toZBuf();
+        vector<Cigar> cigarSegments = getCigarSegments(cigarString.toZBuf());
         string newMD_String;
-        bool del = false;
-        string currentString;
         locationPointer = reference.getPointer(chromosomeName.toZBuf(), location-1);
-        int nIncorrectMatch = 0;
-        string readSequence_string = readSequence.toZBuf();
-        matchReadRefLocations(readSequence_string);
 
-        char MD_char;
-        for (int i = 0; i < MD_String.size(); i++) {
-            MD_char = MD_String[i];
-            if (del) {
-                if (isalpha(MD_char)){ //continues deletion
-                    newMD_String += MD_char;
-                    //currentReadLocation++;
-                    continue;
-                } else if (MD_char == '0') { //deletion stoped, will have mismatch next base
-                    newMD_String += MD_char;
-                    del = false;
-                    continue;
-                } else { // deletion stoped, will have match next base
-                    currentString += MD_char;
-                    del = false;
-                }
-            }
-            else {
-                if (isalpha(MD_char)){ // mismatch
-                    if (currentString.size() != 0) {
-                        if (isalpha(newMD_String.back())){
+        int readPos = 0;
+        long long int refPos = 0;
+        int count = 0;
+        int newXM = 0;
+
+        char cigarSymbol;
+        int cigarLen;
+        for (int i = 0; i < cigarSegments.size(); i++) {
+            cigarSymbol = cigarSegments[i].getLabel();
+            cigarLen = cigarSegments[i].getLen();
+
+            if (cigarSymbol == 'S') {
+                readPos += cigarLen;
+            } else if (cigarSymbol == 'N') {
+                refPos += cigarLen;
+            } else if (cigarSymbol == 'M') {
+                for (int j = 0; j < cigarLen; j++) {
+                    char readChar = readSequence[readPos];
+                    char refChar = *(locationPointer + refPos);
+                    if (readChar == refChar || readChar == 'N' || refChar == 'N') {
+                        count++;
+                    } else {// mismatch
+                        // output matched count
+                        if (count != 0) {
+                            newMD_String += to_string(count);
+                            count = 0;
+                        }
+                        // output mismatch
+                        if (!newMD_String.empty() && isalpha(newMD_String.back())) {
                             newMD_String += '0';
                         }
-                        if (!findConvertedMismatch(readSequence_string, stoi(currentString), newMD_String, nIncorrectMatch)) {
-                            return false;
+                        if (((readChar == convertedTo) && (refChar == convertedFrom) && planA) ||
+                                ((readChar == convertedToComplement) && (refChar == convertedFromComplement) && !planA)) {
+                            // converted base, output to MD, do not count as mismatch
+                            newMD_String += refChar;
+                            TC++;
+                        } else {
+                            // real mismatch
+                            newMD_String += refChar;
+                            newXM++;
+                            if (newXM - XM > incorrectTolerance) {
+                                return false;
+                            }
                         }
+                        updateMP(refPos, readChar, refPos, refChar);
                     }
-                    char ref = MD_char;
-                    newMD_String += ref;
+                    updateRA(readChar, refChar);
 
-                    updateRA(readSequence[currentReadLocation], ref);
-                    updateMP(readSequence[currentReadLocation], ref);
-
-                    currentString = "";
-
-                    currentReadLocation++;
-                } else if(isdigit(MD_char)){ // could be match or 0 in bewtween letters.
-                    if (MD_char == '0') {
-                        if (currentString.size() == 0) { // 0 in bewtween letters
-                            newMD_String += MD_char;
-                            continue;
-                        }
-                    }
-                    currentString += MD_char;
-                    continue;
-                } else { // MD_String[i] == "^", deletion started
-                    del = true;
-                    if (isalpha(newMD_String.back())){
-                        newMD_String += '0';
-                    }
-                    if (!currentString.empty()) {
-                        if (!findConvertedMismatch(readSequence_string, stoi(currentString), newMD_String, nIncorrectMatch)) {
-                            return false;
-                        }
-                    }
-
-                    newMD_String += MD_char;
-                    currentString = "";
-                    continue;
+                    readPos++;
+                    refPos++;
+                }
+            } else if (cigarSymbol == 'I') {
+                readPos += cigarLen;
+            } else if (cigarSymbol == 'D') {
+                if (count != 0) {
+                    newMD_String += to_string(count);
+                    count = 0;
+                }
+                newMD_String += '^';
+                for (int j = 0; j < cigarLen; j++) {
+                    newMD_String += *(locationPointer + refPos);
+                    refPos++;
                 }
             }
         }
-        if (!currentString.empty()) {
-            if (!findConvertedMismatch(readSequence_string, stoi(currentString), newMD_String, nIncorrectMatch)) {
-                return false;
-            }
+
+        if (count != 0) {
+            newMD_String += to_string(count);
         }
-        if (nIncorrectMatch > incorrectTolerance) {
-            return false;
+        if (isalpha(newMD_String.front())) {
+            newMD_String = '0' + newMD_String;
+        }
+        if (isalpha(newMD_String.back())) {
+            newMD_String += '0';
         }
 
+        int nIncorrectMatch = newXM - XM;
         NM += nIncorrectMatch;
-        XM += nIncorrectMatch;
+        XM = newXM;
         AS = AS - 5*nIncorrectMatch;
         MD = newMD_String;
-
         return true;
     }
 
@@ -1601,6 +1427,8 @@ public:
         return 10*AS1 + 10*AS2 - abs(location1 - location2);
     }
 
+    // add a extra tag if the read is aligned on repeat index. this tag will show which repeat index is used.
+    // XR:Z:TC means the read aligned on TC conversion repeat index.
     void addRepeatIndexTag(Alignment *newAlignment) {
         string tag = "";
         if (newAlignment->planA) {
@@ -1651,8 +1479,6 @@ public:
                 return;
             }
             if (newAlignment->repeat) {
-                // if it is repeat and plan B, add a * in front of the read name.
-                // * is the identifier for future repeat expansion
                 addRepeatIndexTag(newAlignment);
             } else {
                 // check mismatch, update tags
@@ -1675,8 +1501,6 @@ public:
             bestAS = newAlignment->AS;
             alignments.push_back(newAlignment);
         } else if (newAlignmentAS == bestAS) {
-            //alignments.push_back(newAlignment);
-            // check if alignment in the vector
             if (alignmentExist(newAlignment)) {
                 newAlignment->initialize();
                 freeAlignments.push(newAlignment);
@@ -1708,7 +1532,6 @@ public:
 
         if (newAlignment->repeat && expandRepeat) {
             if(!existPositions.append(newAlignment)) {
-                //delete newAlignment;
                 newAlignment->initialize();
                 freeAlignments.push(newAlignment);
                 working = false;
@@ -1729,8 +1552,6 @@ public:
                 return;
             }
             if (newAlignment->repeat) {
-                // if it is repeat and plan B, add a * in front of the read name.
-                // * is the identifier for future repeat expansion
                 addRepeatIndexTag(newAlignment);
             } else {
                 // check mismatch, update tags
@@ -1818,10 +1639,9 @@ public:
     void output_single(BTString& o, uint64_t &unAligned, uint64_t &nonRepeatAlignment, uint64_t &uniqueAlignment,
                 uint64_t &multipleAlignment, uint64_t &repeatAlignment) {
 
-        // find NH (nAlginment)
         int nAlignment = 0;
-
         bool repeat = false;
+        // find NH (nAlginment)
         if (expandRepeat) {
             for (int i = 0; i < alignments.size(); i++) {
                 if (alignments[i]->repeat) {
@@ -1840,7 +1660,7 @@ public:
                 }
             }
         }
-
+        // update statistics
         if (nAlignment == 0) {
             unAligned++;
         } else {
@@ -1855,10 +1675,9 @@ public:
                 }
             }
         }
-
+        // output
         bool primaryAlignment = true;
         int nOutput = 0;
-
         if (alignments.empty()) {
             // make a unalignment result and output it.
             outputUnAlignmentRead(o);
@@ -1872,22 +1691,18 @@ public:
                     alignments[i]->primaryAlignment = true;
                     primaryAlignment = false;
                 }
-                //alignments[i]->updateNH(nAlignment);
-                //if (!alignments[i]->repeat) {
                 nOutput += alignments[i]->output(o);
-                //}
-                //delete alignments[i];
             }
         }
 
-        assert (nOutput == nAlignment);
+        assert ((nOutput == nAlignment) || (nAlignment == 0 && nOutput == 1));
         initialize();
     }
 
     void output_paired(BTString& o, uint64_t &unConcordant, uint64_t &uniqueConcordant, uint64_t &multipleConcordant, uint64_t &nonRepeatPairedAlignment,
                        uint64_t &uniqueDiscordant, uint64_t &unAlignedPairRead, uint64_t &alignedPairRead, uint64_t &uniqueAlignedPairRead, uint64_t &multipleAlignedPairRead,
                        uint64_t &concordantRepeat, uint64_t &disconcordantRepeatRead) {
-
+        // update statistics
         if (!concordantAlignmentExist) {
             unConcordant++;
             int nAlignment[2] = {0};
@@ -1942,9 +1757,8 @@ public:
             }
         }
 
-
+        // output
         bool primaryAlignment = true;
-
         if (alignments.empty() || nBestPair == 0) {
             // make a unalignment result and output it.
             outputUnAlignmentRead(o);
@@ -1954,18 +1768,15 @@ public:
                 alignments[i]->updateNH(nBestPair);
             }
             for (int i = 0; i < alignments.size(); i++) {
-                //alignments[i]->updateNH(nBestPair);
                 if ((alignments[i]->pairScore == bestPairScore) && (alignments[i]->concordant == concordantAlignmentExist)) {
                     if (primaryAlignment) {
                         alignments[i]->primaryAlignment = true;
                     }
-                    //alignments[i]->updateNH(nBestPair);
                     alignments[i]->output(o);
                     if (alignments[i]->pairSegment == 1) {
                         primaryAlignment = false;
                     }
                 }
-                //delete alignments[i];
             }
         }
         initialize();
@@ -1977,16 +1788,12 @@ public:
                 uint64_t &unConcordant, uint64_t &uniqueConcordant, uint64_t &multipleConcordant, uint64_t &nonRepeatPairedAlignment,
                 uint64_t &uniqueDiscordant, uint64_t &unAlignedPairRead, uint64_t &alignedPairRead, uint64_t &uniqueAlignedPairRead, uint64_t &multipleAlignedPairRead,
                 uint64_t &concordantRepeat, uint64_t &disconcordantRepeatRead) {
-        // output rest of the alignment. (last read for each thread)
 
         while(working) {
             usleep(100);
         }
-
         BTString obuf_;
-
         OutputQueueMark qqm(oq_, obuf_, previousReadID, threadid_);
-
         if (paired) {
             output_paired(obuf_, unConcordant, uniqueConcordant, multipleConcordant, nonRepeatPairedAlignment,
                     uniqueDiscordant, unAlignedPairRead, alignedPairRead, uniqueAlignedPairRead, multipleAlignedPairRead,
