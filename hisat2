@@ -293,7 +293,8 @@ Info("  Binary args:\n[ @ht2_args ]\n");
 my @read_files = (scalar(@unps) > 0) ? @unps : @mate1s;
 if ((scalar(@read_files) > 0)
 		&& ($seq_in_args == 0)
-		&& ($skip_read_stat == 0)) {
+		&& ($skip_read_stat == 0)
+    && ($read_files[0] ne '-')) {
 	Info("Check read length: $read_files[0]\n");
 	my $cmd = "'$read_stat_prog' $read_files[0]";
 	my $read_len_str = "";
