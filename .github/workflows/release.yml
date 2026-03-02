@@ -8,7 +8,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04  # 使用稍微旧一点的系统以获得更好的 GLIBC 兼容性
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -19,12 +19,14 @@ jobs:
           sudo apt-get install -y make gcc g++ zlib1g-dev libbz2-dev liblzma-dev
 
       - name: Build HISAT2 components
+        # 注入静态链接参数
         run: |
-          make -j$(nproc) RELEASE_FLAGS="-O3 -m64 -mavx2 -flto -funroll-loops"
+          make -j$(nproc) RELEASE_FLAGS="-O3 -m64 -mavx2 -flto -funroll-loops -static-libstdc++ -static-libgcc"
 
       - name: Build HISat3n Wrapper
+        # 同样使用静态链接
         run: |
-          g++ -O3 -flto -o hisat3n hisat2_wrapper.cpp
+          g++ -O3 -flto -static-libstdc++ -static-libgcc -o hisat3n hisat2_wrapper.cpp
 
       - name: Package Binaries
         run: |
