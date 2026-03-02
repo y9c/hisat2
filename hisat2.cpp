@@ -1954,11 +1954,7 @@ static void parseOptions(int argc, const char **argv) {
         printUsage(cerr);
         throw 1;
 	}
-	if (!threeN && base_change_entered) {
-        cerr << "Please do not use --base-change for HISAT2. To align nucleotide conversion reads, please use HISAT-3N" << endl;
-        printUsage(cerr);
-        throw 1;
-	}
+        if (base_change_entered) threeN = true;
 
 	if (threeN) {
         usrInput_convertedFromComplement = asc2dnacomp[usrInput_convertedFrom];

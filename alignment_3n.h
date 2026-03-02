@@ -878,7 +878,7 @@ public:
         }
         // pairing distance
         if (paired) {
-            itoa10<int>(*oppoLocation - *outputLocation, buf);
+            itoa10<int>(pairingDistance, buf);
             o.append(buf);
             o.append('\t');
         } else {

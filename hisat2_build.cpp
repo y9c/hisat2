@@ -759,11 +759,7 @@ int hisat2_build(int argc, const char **argv) {
 			return 0;
 		}
 
-        if (!threeN && base_change_entered) {
-            cerr << "Please do not use --base-change for hisat2-build. To build hisat-3n index, please use hisat-3n-build." << endl;
-            printUsage(cerr);
-            throw 1;
-        }
+        if (base_change_entered) threeN = true;
         if (threeN) {
             convertedFromComplement = asc2dnacomp[convertedFrom];
             convertedToComplement   = asc2dnacomp[convertedTo];
