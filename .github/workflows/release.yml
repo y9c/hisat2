@@ -1,0 +1,47 @@
+name: Build and Release HISAT3N
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y make gcc g++ zlib1g-dev libbz2-dev liblzma-dev
+
+      - name: Build HISAT2 components
+        run: |
+          make -j$(nproc) RELEASE_FLAGS="-O3 -m64 -mavx2 -flto -funroll-loops"
+
+      - name: Build HISat3n Wrapper
+        run: |
+          g++ -O3 -flto -o hisat3n hisat2_wrapper.cpp
+
+      - name: Package Binaries
+        run: |
+          mkdir -p hisat3n-bin
+          cp hisat3n hisat2-align-s hisat2-align-l hisat2-build-s hisat2-build-l hisat2-inspect-s hisat2-inspect-l hisat3n-bin/
+          tar -czvf hisat3n-linux-x86_64.tar.gz hisat3n-bin/
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hisat3n-bin
+          path: hisat3n-linux-x86_64.tar.gz
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          files: hisat3n-linux-x86_64.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
