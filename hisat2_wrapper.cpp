@@ -49,7 +49,13 @@ int main(int argc, char *argv[]) {
     
     int start_idx = shift ? 2 : 1;
     for (int i = start_idx; i < argc; ++i) {
-        args.push_back(argv[i]);
+        std::string arg = argv[i];
+        // Map --index to -x for compatibility with some pipeline scripts
+        if (arg == "--index") {
+            args.push_back((char*)"-x");
+        } else {
+            args.push_back(argv[i]);
+        }
     }
     args.push_back(NULL);
 
