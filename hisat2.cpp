@@ -1949,22 +1949,23 @@ static void parseOptions(int argc, const char **argv) {
 		cerr << "Final policy string: '" << polstr.c_str() << "'" << endl;
 	}
 
+	if (base_change_entered) threeN = true;
 	if (threeN && !base_change_entered) {
 	    cerr << "--base-change must be set for HISAT-3N" << endl;
-        printUsage(cerr);
-        throw 1;
+	    printUsage(cerr);
+	    throw 1;
 	}
-        if (base_change_entered) threeN = true;
 
 	if (threeN) {
-        usrInput_convertedFromComplement = asc2dnacomp[usrInput_convertedFrom];
-        usrInput_convertedToComplement   = asc2dnacomp[usrInput_convertedTo];
+	usrInput_convertedFromComplement = asc2dnacomp[usrInput_convertedFrom];
+	usrInput_convertedToComplement   = asc2dnacomp[usrInput_convertedTo];
 
-        getConversion(usrInput_convertedFrom, usrInput_convertedTo, hs3N_convertedFrom, hs3N_convertedTo);
-        hs3N_convertedFromComplement = asc2dnacomp[hs3N_convertedFrom];
-        hs3N_convertedToComplement   = asc2dnacomp[hs3N_convertedTo];
+	getConversion(usrInput_convertedFrom, usrInput_convertedTo, hs3N_convertedFrom, hs3N_convertedTo);
+	hs3N_convertedFromComplement = asc2dnacomp[hs3N_convertedFrom];
+	hs3N_convertedToComplement   = asc2dnacomp[hs3N_convertedTo];
+	g3NTable.init(hs3N_convertedFrom, hs3N_convertedTo, hs3N_convertedFromComplement, hs3N_convertedToComplement);
+	asc2dna_3N[0][hs3N_convertedFrom] = asc2dna[hs3N_convertedTo];
 
-        asc2dna_3N[0][hs3N_convertedFrom] = asc2dna[hs3N_convertedTo];
         asc2dna_3N[0][tolower(hs3N_convertedFrom)] = asc2dna[hs3N_convertedTo];
         asc2dna_3N[1][hs3N_convertedFromComplement] = asc2dna[hs3N_convertedToComplement];
         asc2dna_3N[1][tolower(hs3N_convertedFromComplement)] = asc2dna[hs3N_convertedToComplement];
@@ -4850,19 +4851,21 @@ int hisat2(int argc, const char **argv) {
             }
             if (threeN) {
                 bt2indexs[1] = bt2indexs[0];
+                string altTag = ".3n.";
+                altTag += asc2dnacomp[hs3N_convertedFrom];
+                altTag += asc2dnacomp[hs3N_convertedTo];
                 if (fileExist(bt2indexs[0] + threeN_indexTags[0] + ".1." + gfm_ext)) {
                     bt2indexs[0] += threeN_indexTags[0];
                     bt2indexs[1] += threeN_indexTags[1];
+                } else if (fileExist(bt2indexs[0] + altTag + ".1." + gfm_ext)) {
+                    bt2indexs[0] += altTag;
+                    string altTag2 = ".3n.";
+                    altTag2 += asc2dnacomp[hs3N_convertedFromComplement];
+                    altTag2 += asc2dnacomp[hs3N_convertedToComplement];
+                    bt2indexs[1] += altTag2;
                 } else if (fileExist(bt2indexs[0] + ".3n.1.1." + gfm_ext)) {
                     bt2indexs[0] += ".3n.1";
                     bt2indexs[1] += ".3n.2";
-                    if (!((usrInput_convertedFrom == 'C' && usrInput_convertedTo == 'T') ||
-                          (usrInput_convertedFrom == 'T' && usrInput_convertedTo == 'C'))) {
-                        cerr << "Your current hisat-3n index only support C-to-T or T-to-C base change. Please build new hisat-3n index to support "
-                        << usrInput_convertedFrom << " to " << usrInput_convertedTo << "change." << endl;
-                        printUsage(cerr);
-                        return 1;
-                    }
                 } else {
                     cerr << "Index is not exist, please use hisat-3n-build to build index first. Please use the same --base-change argument for both hisat-3n-build and hisat-3n." << endl;
                     printUsage(cerr);

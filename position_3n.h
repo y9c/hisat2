@@ -248,6 +248,10 @@ public:
     int YS;
     int Yf;
     int Zf;
+    int Yc;
+    int Zc;
+    int NS;
+    int NC;
     char YZ;
     BTString refSequence;
     BTString repeatChromosome;
@@ -262,12 +266,16 @@ public:
     RepeatMappingPosition (long long int& inputLocation,
                            BTString& inputChromosome,
                            BTString &inputRefSequence,
-                           int &inputAS,
+                           int inputAS,
                            BTString &inputMD,
-                           int &inputXM,
-                           int &inputNM,
-                           int &inputYf,
-                           int &inputZf,
+                           int inputXM,
+                           int inputNM,
+                           int inputYf,
+                           int inputZf,
+                           int inputYc,
+                           int inputZc,
+                           int inputNS,
+                           int inputNC,
                            char &repeatYZ) {
         repeatLocation = inputLocation;
         repeatChromosome = inputChromosome;
@@ -278,6 +286,10 @@ public:
         NM = inputNM;
         Yf = inputYf;
         Zf = inputZf;
+        Yc = inputYc;
+        Zc = inputZc;
+        NS = inputNS;
+        NC = inputNC;
         YZ = repeatYZ;
         pairScore = numeric_limits<int>::min();
         flagInfoIndex = -1;
@@ -336,14 +348,18 @@ public:
     void append (long long int &location,
                  BTString &chromosome,
                  BTString &refSequence,
-                 int &AS,
+                 int AS,
                  BTString &MD,
-                 int &XM,
-                 int &NM,
-                 int &Yf,
-                 int &Zf,
+                 int XM,
+                 int NM,
+                 int Yf,
+                 int Zf,
+                 int Yc,
+                 int Zc,
+                 int NS,
+                 int NC,
                  char &repeatYZ) {
-        positions.emplace_back(location, chromosome, refSequence, AS, MD, XM, NM, Yf, Zf, repeatYZ);
+        positions.emplace_back(location, chromosome, refSequence, AS, MD, XM, NM, Yf, Zf, Yc, Zc, NS, NC, repeatYZ);
     }
 
     /**

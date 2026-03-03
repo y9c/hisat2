@@ -33,6 +33,8 @@
 #include "reference.h"
 #include <unistd.h>
 #include <queue>
+#include "conversion_lookup.h"
+#include "fast_io.h"
 #include "position_3n.h"
 #include "utility_3n.h"
 #include "simple_func.h"
@@ -91,6 +93,11 @@ public:
     // special tags in HISAT-3N
     int Yf; // number of conversion.
     int Zf; // number of unconverted base.
+    int Yc; // number of conversion on other strand.
+    int Zc; // number of unconverted base on other strand.
+    int NS; // number of non-3N mismatch.
+    int NC; // number of soft-clipped/indels.
+    float AP; // alignment penalty.
     char YZ;  // this tag shows alignment strand: check makeYZ function for the classification rule
               // + for REF strand (conversionCount[0] is equal or smaller than conversionCount[1]),
               // - for REF-RC strand (conversionCount[1] is smaller)
@@ -152,6 +159,11 @@ public:
         YT.clear();
         Yf = 0;
         Zf = 0;
+        Yc = 0;
+        Zc = 0;
+        NS = 0;
+        NC = 0;
+        AP = 0.0f;
         unChangedTags.clear();
 
         outputted = false;
@@ -343,6 +355,64 @@ public:
         return outZf;
     }
 
+    void _constructMD_Internal(const char* refSeqPtr, BTString &outMD, int &outNM, int &outYf, int &outZf, int &outYc, int &outZc, int &outNS, int &outNC, char &outYZ) {
+        char buf[1024];
+        conversionCount[0] = conversionCount[1] = unConversionCount[0] = unConversionCount[1] = 0;
+        int readPos = 0, refPos = 0, matchCount = 0, localXM = 0;
+        outNC = 0;
+        const char* readBase = readSequence.toZBuf();
+
+        for (size_t i = 0; i < cigarSegments.size(); i++) {
+            char op = cigarSegments[i].getLabel();
+            int len = cigarSegments[i].getLen();
+            if (op == 'S') { readPos += len; outNC += len; }
+            else if (op == 'N') { refPos += len; }
+            else if (op == 'M') {
+                for (int j = 0; j < len; j++) {
+                    char r = toupper(readBase[readPos++]);
+                    char g = toupper(refSeqPtr[refPos++]);
+                    uint8_t t = g3NTable.table[(uint8_t)g];
+                    if (r == g) {
+                        if (t == 1) unConversionCount[0]++;
+                        else if (t == 2) unConversionCount[1]++;
+                        matchCount++;
+                    } else {
+                        if (matchCount > 0) {
+                            char* end = fast_append_int(buf, matchCount); *end = '\0';
+                            outMD.append(buf); matchCount = 0;
+                        }
+                        if (!outMD.empty() && isalpha(outMD[outMD.length()-1])) outMD.append('0');
+                        if (t == 1 && r == hs3N_convertedTo) conversionCount[0]++;
+                        else if (t == 2 && r == hs3N_convertedToComplement) conversionCount[1]++;
+                        else localXM++;
+                        outMD.append(g);
+                    }
+                }
+            } else if (op == 'I') { readPos += len; outNC += len; localXM += len; }
+            else if (op == 'D') {
+                if (matchCount > 0) {
+                    char* end = fast_append_int(buf, matchCount); *end = '\0';
+                    outMD.append(buf); matchCount = 0;
+                }
+                outMD.append('^'); outNC += len; localXM += len;
+                for (int j = 0; j < len; j++) outMD.append(toupper(refSeqPtr[refPos++]));
+            }
+        }
+        if (matchCount > 0) { char* end = fast_append_int(buf, matchCount); *end = '\0'; outMD.append(buf); }
+        if (outMD.empty()) outMD.append('0');
+        if (isalpha(outMD[0])) outMD.insert('0', 0);
+        if (isalpha(outMD[outMD.length()-1])) outMD.append('0');
+
+        makeYZ(outYZ);
+        int badC = (outYZ == '+') ? conversionCount[1] : conversionCount[0];
+        outYf = (outYZ == '+') ? conversionCount[0] : conversionCount[1];
+        outZf = (outYZ == '+') ? unConversionCount[0] : unConversionCount[1];
+        outYc = (outYZ == '+') ? conversionCount[1] : conversionCount[0];
+        outZc = (outYZ == '+') ? unConversionCount[1] : unConversionCount[0];
+        outNS = localXM;
+        outNM = localXM + badC;
+    }
+
     /**
      * expand the repeat mapping location and construct MD for each location.
      * return ture if there is any mapping location pass the filter, else, false.
@@ -397,30 +467,11 @@ public:
                 refSequence.set(intToBase[*(refSeq + j)], j);
             }
 
-            // check whether the refSequence is exist. if do, directly append the repeat.
-            int repeatPositionsIndex;
-            if (repeatPositions.sequenceExist(refSequence, repeatPositionsIndex)) {
-                repeatPositions.append(chromosomeRepeat, locationRepeat, repeatPositionsIndex);
-                continue;
-            }
-
-            BTString newMD;
-            int newMismatch = 0;
-            char repeatYZ;
-            int repeatYf;
-            int repeatZf;
-            if (!constructRepeatMD(refSequence, newMD, newMismatch, repeatYf, repeatZf, repeatYZ)) {
-                continue;
-            }
-
-            int newXM = XM + newMismatch;
-            int newNM = NM + newMismatch;
-            int newAS = AS - penMmcMax * newMismatch;
-            if (newAS < MinimumScore)
-            {
-                continue;
-            }
-            repeatPositions.append(locationRepeat, chromosomeRepeat, refSequence,newAS, newMD, newXM, newNM, repeatYf, repeatZf, repeatYZ);
+            BTString newMD; int nNM, nyf, nzf, nyc, nzc, nns, nnc; char nyz;
+            _constructMD_Internal(refSequence.toZBuf(), newMD, nNM, nyf, nzf, nyc, nzc, nns, nnc, nyz);
+            int nAS = AS - penMmcMax * (nNM - NM);
+            if (nAS < MinimumScore) continue;
+            repeatPositions.append(locationRepeat, chromosomeRepeat, refSequence, nAS, newMD, XM + (nNM - NM), nNM, nyf, nzf, nyc, nzc, nns, nnc, nyz);
 
             // if there are too many mappingPosition exist return.
             if (repeatPositions.size() >= repeatLimit || alignmentPositions.size() > repeatLimit) {
@@ -439,103 +490,10 @@ public:
      * return true if the mapping result does not have a lot of mismatch, else return false.
      */
     bool constructRepeatMD(BTString &refSeq, BTString &newMD_String, int &newMismatch, int& repeatYf, int& repeatZf, char &repeatYZ) {
-        char buf[1024];
-
-        conversionCount[0] = 0;
-        conversionCount[1] = 0;
-        unConversionCount[0] = 0;
-        unConversionCount[1] = 0;
-
-        int readPos = 0;
-        long long int refPos = 0;
-        int count = 0;
-        int newXM = 0;
-
-        char cigarSymbol;
-        int cigarLen;
-        for (int i = 0; i < cigarSegments.size(); i++) {
-            cigarSymbol = cigarSegments[i].getLabel();
-            cigarLen = cigarSegments[i].getLen();
-
-            if (cigarSymbol == 'S') {
-                readPos += cigarLen;
-            } else if (cigarSymbol == 'N') {
-                refPos += cigarLen;
-            } else if (cigarSymbol == 'M') {
-                for (int j = 0; j < cigarLen; j++) {
-                    char readChar = readSequence[readPos];
-                    char refChar = refSeq[refPos];
-                    if (readChar == refChar) {
-                        if (refChar == usrInput_convertedFrom)
-                        {
-                            unConversionCount[0]++;
-                        }
-                        else if (refChar == usrInput_convertedFromComplement)
-                        {
-                            unConversionCount[1]++;
-                        }
-                        count++;
-                    } else {// mismatch
-                        // output matched count
-                        if (count != 0) {
-                            itoa10<int>(count, buf);
-                            newMD_String.append(buf);
-                            count = 0;
-                        }
-                        // output mismatch
-                        if (!newMD_String.empty() && isalpha(newMD_String[newMD_String.length()-1])) {
-                            newMD_String.append('0');
-                        }
-                        if ((readChar == usrInput_convertedTo) && (refChar == usrInput_convertedFrom)) {
-                            conversionCount[0]++;
-                        } else if ((readChar == usrInput_convertedToComplement) && (refChar == usrInput_convertedFromComplement)) {
-                            conversionCount[1]++;
-                        } else {
-                            // real mismatch
-                            newXM++;
-                        }
-                        newMD_String.append(refChar);
-                    }
-                    readPos++;
-                    refPos++;
-                }
-            } else if (cigarSymbol == 'I') {
-                readPos += cigarLen;
-            } else if (cigarSymbol == 'D') {
-                newMD_String.append('^');
-                for (int j = 0; j < cigarLen; j++) {
-                    newMD_String.append(refSeq[refPos]);
-                    refPos++;
-                }
-            }
-        }
-
-        if (count != 0) {
-            itoa10<int>(count, buf);
-            newMD_String.append(buf);
-        }
-        if (isalpha(newMD_String[0])) { newMD_String.insert('0', 0); }
-        if (isalpha(newMD_String[newMD_String.length()-1])) { newMD_String.append('0'); }
-
-        makeYZ(repeatYZ);
-        int badConversion = 0;
-        // identify the bad conversion number based on repeatYZ;
-        if (repeatYZ == '+') {
-            badConversion = conversionCount[1];
-        } else {
-            badConversion = conversionCount[0];
-        }
-
-        repeatYf = makeYf(repeatYZ);
-        repeatZf = makeZf(repeatZf);
-
-        newXM += badConversion;
-        newMismatch = newXM - XM;
-
-        if (newMismatch < 0){
-            newMismatch = 0;
-        }
-
+        int nNM, nyc, nzc, nns, nnc;
+        _constructMD_Internal(refSeq.toZBuf(), newMD_String, nNM, repeatYf, repeatZf, nyc, nzc, nns, nnc, repeatYZ);
+        newMismatch = nNM - NM;
+        if (newMismatch < 0) newMismatch = 0;
         return true;
     }
 
@@ -560,112 +518,16 @@ public:
                 (size_t)max<int>(location-1, 0),
                 (size_t)cigarLength ASSERT_ONLY(, destU32));
         char* refSeq = raw_refbuf.wbuf() + off;
-
-        int readPos = 0;
-        long long int refPos = 0;
-        int count = 0;
-        int newXM = 0;
-
-        char cigarSymbol;
-        int cigarLen;
-        for (int i = 0; i < cigarSegments.size(); i++) {
-            cigarSymbol = cigarSegments[i].getLabel();
-            cigarLen = cigarSegments[i].getLen();
-            if (cigarSymbol == 'S') {
-                readPos += cigarLen;
-            } else if (cigarSymbol == 'N') {
-                refPos += cigarLen;
-            } else if (cigarSymbol == 'M') {
-                for (int j = 0; j < cigarLen; j++) {
-                    char readChar = readSequence[readPos];
-                    char refChar = intToBase[*(refSeq + refPos)];
-                    if (readChar == refChar) {
-                        if (refChar == usrInput_convertedFrom)
-                        {
-                            unConversionCount[0]++;
-                        }
-                        else if (refChar == usrInput_convertedFromComplement)
-                        {
-                            unConversionCount[1]++;
-                        }
-                        count++;
-                    } else {// mismatch
-                        // output matched count
-                        if (count != 0) {
-                            itoa10<int>(count, buf);
-                            MD.append(buf);
-                            count = 0;
-                        }
-                        // output mismatch
-                        if (!MD.empty() && isalpha(MD[MD.length()-1])) {
-                            MD.append('0');
-                        }
-
-                        if ((readChar == usrInput_convertedTo) && (refChar == usrInput_convertedFrom)) {
-                            conversionCount[0]++;
-                        } else if ((readChar == usrInput_convertedToComplement) && (refChar == usrInput_convertedFromComplement)) {
-                            conversionCount[1]++;
-                        } else {
-                            // real mismatch
-                            newXM++;
-                        }
-                        MD.append(refChar);
-                    }
-                    readPos++;
-                    refPos++;
-                }
-            } else if (cigarSymbol == 'I') {
-                readPos += cigarLen;
-            } else if (cigarSymbol == 'D') {
-                if (count != 0) {
-                    itoa10<int>(count, buf);
-                    MD.append(buf);
-                    count = 0;
-                }
-                MD.append('^');
-                for (int j = 0; j < cigarLen; j++) {
-                    MD.append(intToBase[*(refSeq + refPos)]);
-                    refPos++;
-                }
-            }
-        }
-
-        if (count != 0) {
-            itoa10<int>(count, buf);
-            MD.append(buf);
-        }
-        if (isalpha(MD[0])) { MD.insert('0', 0); }
-        if (isalpha(MD[MD.length()-1])) { MD.append('0'); }
-
-        makeYZ(YZ);
-        int badConversion = 0;
-        // identify the bad conversion number based on YZ tag;
-        if (YZ == '+') {
-            badConversion = conversionCount[1];
-        } else {
-            badConversion = conversionCount[0];
-        }
-        Yf = makeYf(YZ);
-        Zf = makeZf(YZ);
-
-        newXM += badConversion;
-        newXM -= XM;
-
-        if (newXM < 0){
-            newXM = 0;
-        }
-
-
-        NM += newXM;
-        XM += newXM;
-        AS = AS - penMmcMax * newXM;
-        if (AS < MinimumScore)
-        {
-            return false;
-        }
+        string tRef; tRef.reserve(cigarLength);
+        for(int i=0; i<cigarLength; ++i) tRef += intToBase[(uint8_t)refSeq[i]];
+        int nNM, nyf, nzf, nyc, nzc, nns, nnc; char nyz;
+        _constructMD_Internal(tRef.c_str(), MD, nNM, nyf, nzf, nyc, nzc, nns, nnc, nyz);
+        int nAS = AS - penMmcMax * (nNM - NM);
+        if (nAS < MinimumScore) return false;
+        AS = nAS; NM = nNM; Yf = nyf; Zf = nzf; Yc = nyc; Zc = nzc; NS = nns; NC = nnc; YZ = nyz;
         BTString tmp;
         if (pairToRepeat) {
-            repeatPositions.append(location, chromosomeName, tmp, AS, MD, XM, NM, Yf, Zf, YZ);
+            repeatPositions.append(location, chromosomeName, tmp, AS, MD, XM, NM, Yf, Zf, Yc, Zc, NS, NC, YZ);
         }
         return true;
     }
@@ -725,6 +587,10 @@ public:
             //Zf
             o.append("Zf:i:");
             itoa10<int>(Zf, buf);
+            o.append(buf);
+            o.append('\t');
+            // Yc, Zc, NS, NC, AP
+            snprintf(buf, sizeof(buf), "Yc:i:%d\tZc:i:%d\tNS:i:%d\tNC:i:%d\tAP:f:%.2f", Yc, Zc, NS, NC, (float)NS + (float)NC * 0.2f);
             o.append(buf);
         }
         // unchanged Tags
@@ -801,6 +667,10 @@ public:
         // Zf
         o.append("Zf:i:");
         itoa10<int>(repeatInfo->Zf, buf);
+        o.append(buf);
+        o.append('\t');
+        // Yc, Zc, NS, NC, AP
+        snprintf(buf, sizeof(buf), "Yc:i:%d\tZc:i:%d\tNS:i:%d\tNC:i:%d\tAP:f:%.2f", repeatInfo->Yc, repeatInfo->Zc, repeatInfo->NS, repeatInfo->NC, (float)repeatInfo->NS + (float)repeatInfo->NC * 0.2f);
         o.append(buf);
 
         // unchanged Tags
