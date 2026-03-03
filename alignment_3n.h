@@ -44,6 +44,11 @@ extern char usrInput_convertedFrom;
 extern char usrInput_convertedTo;
 extern char usrInput_convertedFromComplement;
 extern char usrInput_convertedToComplement;
+extern char usrInput_secondaryFrom;
+extern char usrInput_secondaryTo;
+extern char usrInput_secondaryFromComplement;
+extern char usrInput_secondaryToComplement;
+
 extern SimpleFunc scoreMin;   // minimum valid score as function of read len
 extern int   penMmcMax;       // max mm penalty
 
@@ -130,8 +135,8 @@ public:
     bool repeat;
     bool pairToRepeat;
     RepeatMappingPositions repeatPositions; // to store the expanded repeat information
-    int conversionCount[2] = {0}; // there are two type of conversion could happen, save the number of conversion separately.
-    int unConversionCount[2] = {0}; // save the unconverted base count.
+    int conversionCount[4] = {0}; // there are two type of conversion could happen, save the number of conversion separately.
+    int unConversionCount[4] = {0}; // save the unconverted base count.
     string intToBase = "ACGTN";
 
     void initialize() {
@@ -184,10 +189,7 @@ public:
         repeat = false;
         pairToRepeat = false;
         repeatPositions.initialize();
-        conversionCount[0] = 0;
-        conversionCount[1] = 0;
-        unConversionCount[0] = 0;
-        unConversionCount[1] = 0;
+        for(int i=0; i<4; ++i) conversionCount[i] = unConversionCount[i] = 0;
         passThroughLine.clear();
     }
 
@@ -357,10 +359,34 @@ public:
 
     void _constructMD_Internal(const char* refSeqPtr, BTString &outMD, int &outNM, int &outYf, int &outZf, int &outYc, int &outZc, int &outNS, int &outNC, char &outYZ) {
         char buf[1024];
-        conversionCount[0] = conversionCount[1] = unConversionCount[0] = unConversionCount[1] = 0;
+        for(int i=0; i<4; ++i) conversionCount[i] = unConversionCount[i] = 0;
         int readPos = 0, refPos = 0, matchCount = 0, localXM = 0;
         outNC = 0;
         const char* readBase = readSequence.toZBuf();
+
+        // Pass 1: Determine strand/YZ
+        for (size_t i = 0; i < cigarSegments.size(); i++) {
+            char op = cigarSegments[i].getLabel();
+            int len = cigarSegments[i].getLen();
+            if (op == 'S' || op == 'I') { readPos += len; }
+            else if (op == 'N' || op == 'D') { refPos += len; }
+            else if (op == 'M') {
+                for (int j = 0; j < len; j++) {
+                    char r = toupper(readBase[readPos++]);
+                    char g = toupper(refSeqPtr[refPos++]);
+                    uint8_t t = g3NTable.table[(uint8_t)g];
+                    if (r != g) {
+                        if (t == 1 && r == usrInput_convertedTo) conversionCount[0]++;
+                        else if (t == 2 && r == usrInput_convertedToComplement) conversionCount[1]++;
+                    }
+                }
+            }
+        }
+        makeYZ(outYZ);
+        
+        // Reset for Pass 2 (Actual counting and MD)
+        for(int i=0; i<4; ++i) conversionCount[i] = 0;
+        readPos = 0; refPos = 0; matchCount = 0; localXM = 0;
 
         for (size_t i = 0; i < cigarSegments.size(); i++) {
             char op = cigarSegments[i].getLabel();
@@ -375,6 +401,8 @@ public:
                     if (r == g) {
                         if (t == 1) unConversionCount[0]++;
                         else if (t == 2) unConversionCount[1]++;
+                        else if (t == 3) unConversionCount[2]++;
+                        else if (t == 4) unConversionCount[3]++;
                         matchCount++;
                     } else {
                         if (matchCount > 0) {
@@ -382,19 +410,26 @@ public:
                             outMD.append(buf); matchCount = 0;
                         }
                         if (!outMD.empty() && isalpha(outMD[outMD.length()-1])) outMD.append('0');
-                        if (t == 1 && r == hs3N_convertedTo) conversionCount[0]++;
-                        else if (t == 2 && r == hs3N_convertedToComplement) conversionCount[1]++;
-                        else localXM++;
+                        
+                        bool isPri = (outYZ == '+' && t == 1 && r == usrInput_convertedTo) ||
+                                     (outYZ == '-' && t == 2 && r == usrInput_convertedToComplement);
+                        
+                        if (t == 1 && r == usrInput_convertedTo) conversionCount[0]++;
+                        else if (t == 2 && r == usrInput_convertedToComplement) conversionCount[1]++;
+                        else if (t == 3 && r == usrInput_secondaryTo) { conversionCount[2]++; localXM++; }
+                        else if (t == 4 && r == usrInput_secondaryToComplement) { conversionCount[3]++; localXM++; }
+                        else { localXM++; }
+                        
                         outMD.append(g);
                     }
                 }
-            } else if (op == 'I') { readPos += len; outNC += len; localXM += len; }
+            } else if (op == 'I') { readPos += len; outNC += len; localXM++; }
             else if (op == 'D') {
                 if (matchCount > 0) {
                     char* end = fast_append_int(buf, matchCount); *end = '\0';
                     outMD.append(buf); matchCount = 0;
                 }
-                outMD.append('^'); outNC += len; localXM += len;
+                outMD.append('^'); outNC += len; localXM++;
                 for (int j = 0; j < len; j++) outMD.append(toupper(refSeqPtr[refPos++]));
             }
         }
@@ -403,14 +438,13 @@ public:
         if (isalpha(outMD[0])) outMD.insert('0', 0);
         if (isalpha(outMD[outMD.length()-1])) outMD.append('0');
 
-        makeYZ(outYZ);
-        int badC = (outYZ == '+') ? conversionCount[1] : conversionCount[0];
+        int badPri = (outYZ == '+') ? conversionCount[1] : conversionCount[0];
         outYf = (outYZ == '+') ? conversionCount[0] : conversionCount[1];
         outZf = (outYZ == '+') ? unConversionCount[0] : unConversionCount[1];
-        outYc = (outYZ == '+') ? conversionCount[1] : conversionCount[0];
-        outZc = (outYZ == '+') ? unConversionCount[1] : unConversionCount[0];
+        outYc = (outYZ == '+') ? conversionCount[2] : conversionCount[3];
+        outZc = (outYZ == '+') ? unConversionCount[2] : unConversionCount[3];
         outNS = localXM;
-        outNM = localXM + badC;
+        outNM = localXM + badPri;
     }
 
     /**
@@ -432,10 +466,10 @@ public:
 
         BTString chromosomeRepeat;
         long long int locationRepeat;
-        for (int i = 0; i < repeatResult->count; i++) {
+        for (int i = 0; i < (int)repeatResult->count; i++) {
             struct ht2_position *pos = &repeatResult->positions[i];
             chromosomeRepeat = refNameMap->names[pos->chr_id];
-            for (int j = 0; j < chromosomeRepeat.length(); j++) {
+            for (int j = 0; j < (int)chromosomeRepeat.length(); j++) {
                 if (chromosomeRepeat[j] == ' ') {
                     chromosomeRepeat.trimEnd(chromosomeRepeat.length() - j);
                     break;
@@ -474,7 +508,7 @@ public:
             repeatPositions.append(locationRepeat, chromosomeRepeat, refSequence, nAS, newMD, XM + (nNM - NM), nNM, nyf, nzf, nyc, nzc, nns, nnc, nyz);
 
             // if there are too many mappingPosition exist return.
-            if (repeatPositions.size() >= repeatLimit || alignmentPositions.size() > repeatLimit) {
+            if ((int)repeatPositions.size() >= repeatLimit || (int)alignmentPositions.size() > repeatLimit) {
                 return true;
             }
         }
@@ -505,7 +539,6 @@ public:
         if (!mapped) {
             return true;
         }
-        char buf[1024];
         MD.clear();
 
         ASSERT_ONLY(SStringExpandable<uint32_t> destU32);
@@ -836,7 +869,7 @@ public:
             qualityScore[i].clear();
             passThroughLines[i].clear();
         }
-        for (int i = 0; i < alignments.size(); i++) {
+        for (int i = 0; i < (int)alignments.size(); i++) {
             alignments[i]->initialize();
             freeAlignments.push_back(alignments[i]);
         }
@@ -852,7 +885,7 @@ public:
             delete freeAlignments.back();
             freeAlignments.pop_back();
         }
-        for (int i = 0; i < alignments.size(); i++) {
+        for (int i = 0; i < (int)alignments.size(); i++) {
             delete alignments[i];
         }
     }
@@ -871,7 +904,7 @@ public:
      * return true if we want to receive more new alignment.
      */
     bool acceptNewAlignment() {
-        if (uniqueOutputOnly && multipleAligned ||
+        if ((uniqueOutputOnly && multipleAligned) ||
             alignmentPositions.nBestSingle >= repeatLimit ||
             nRepeatAlignment > repeatPoolLimit ||
             alignmentPositions.nBestPair >= repeatLimit) {
@@ -970,7 +1003,7 @@ public:
                 {
                     ReadNameLength = 255;
                 }
-                for (int j = 0; j < ReadNameLength; j++)
+                for (int j = 0; j < (int)ReadNameLength; j++)
                 {
                     if(isspace(readName[i][j])) {
                         break;
@@ -992,13 +1025,12 @@ public:
             }
         } else {
             assert(!readName[0].empty());
-            string ReadName = "";
             uint ReadNameLength = readName[0].length();
             if (readName[0].length() > 255)
             {
                 ReadNameLength = 255;
             }
-            for (int j = 0; j < ReadNameLength; j++)
+            for (int j = 0; j < (int)ReadNameLength; j++)
             {
                 if(isspace(readName[0][j])) {
                     break;

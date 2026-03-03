@@ -308,10 +308,15 @@ static EList<size_t> readLens;
 bool threeN = false; // indicator for 3N mode.
 bool base_change_entered; // set true once user used --base-change
 
-char usrInput_convertedFrom; // user input converted from. the nucleotide is replaced by others in sample preparation protocol. for sequence comparison step in HISAT-3N.
-char usrInput_convertedTo;   // user input converted To. the nucleotide to others in sample preparation protocol. for sequence comparison step in HISAT-3N.
-char usrInput_convertedFromComplement; // the complement of usrInput_convertedFrom. for sequence comparison step in HISAT-3N.
-char usrInput_convertedToComplement; // the complement of usrInput_convertedTo. for sequence comparison step in HISAT-3N.
+char usrInput_convertedFrom;
+char usrInput_convertedTo;
+char usrInput_convertedFromComplement;
+char usrInput_convertedToComplement;
+char usrInput_secondaryFrom;
+char usrInput_secondaryTo;
+char usrInput_secondaryFromComplement;
+char usrInput_secondaryToComplement;
+bool secondary_change_entered = false;
 
 char hs3N_convertedFrom; // the actual converted from by HISAT-3N. use in + strand.
 char hs3N_convertedTo;   // the actual converted to by HISAT-3N. use in + strand.
@@ -805,6 +810,7 @@ static struct option long_options[] = {
     {(char*)"no-repeat-index", no_argument,        0,        ARG_NO_REPEAT_INDEX},
     {(char*)"read-lengths",    required_argument,  0,        ARG_READ_LENGTHS},
     {(char*)"base-change",     required_argument,  0,        ARG_BASE_CHANGE},
+    {(char*)"secondary-change", required_argument, 0, ARG_SECONDARY_CHANGE},
     {(char*)"repeat-limit",    required_argument,  0,        ARG_REPEAT_LIMIT},
     {(char*)"unique-only",     no_argument,        0,        ARG_UNIQUE_ONLY},
     {(char*)"3N",              no_argument,        0,        ARG_3N},
@@ -933,6 +939,7 @@ static void printUsage(ostream& out) {
         << endl
         << " 3N-Alignment:" << endl
         << "  --base-change <chr,chr>     the converted nucleotide and converted to nucleotide (C,T)" << endl
+        << "  --secondary-change <chr,chr> the secondary converted and converted to nucleotide (default: complement of primary)" << endl
         << "  --directional-mapping       make directional mapping, please use this option only if your reads are prepared with a strand specific library (off)" << endl
         << "  --repeat-limit <int>        maximum number of repeat will be expanded for repeat alignment (1000)" << endl
         << "  --unique-only               only output the reads have unique alignment (off)" << endl
@@ -1867,6 +1874,18 @@ static void parseOption(int next_option, const char *arg) {
 
             break;
         }
+        case ARG_SECONDARY_CHANGE: {
+            EList<string> args;
+            tokenize(arg, ",", args);
+            if(args.size() != 2) {
+                cerr << "Error: expected 2 comma-separated arguments to --secondary-change option" << endl;
+                throw 1;
+            }
+            usrInput_secondaryFrom = toupper(args[0][0]);
+            usrInput_secondaryTo = toupper(args[1][0]);
+            secondary_change_entered = true;
+            break;
+        }
         case ARG_3N: {
             threeN = true;
             break;
@@ -1956,14 +1975,22 @@ static void parseOptions(int argc, const char **argv) {
 	    throw 1;
 	}
 
-	if (threeN) {
-	usrInput_convertedFromComplement = asc2dnacomp[usrInput_convertedFrom];
-	usrInput_convertedToComplement   = asc2dnacomp[usrInput_convertedTo];
+        if (threeN) {
+            usrInput_convertedFromComplement = asc2dnacomp[usrInput_convertedFrom];
+            usrInput_convertedToComplement   = asc2dnacomp[usrInput_convertedTo];
 
-	getConversion(usrInput_convertedFrom, usrInput_convertedTo, hs3N_convertedFrom, hs3N_convertedTo);
-	hs3N_convertedFromComplement = asc2dnacomp[hs3N_convertedFrom];
-	hs3N_convertedToComplement   = asc2dnacomp[hs3N_convertedTo];
-	g3NTable.init(hs3N_convertedFrom, hs3N_convertedTo, hs3N_convertedFromComplement, hs3N_convertedToComplement);
+            if (secondary_change_entered) {
+                usrInput_secondaryFromComplement = asc2dnacomp[usrInput_secondaryFrom];
+                usrInput_secondaryToComplement   = asc2dnacomp[usrInput_secondaryTo];
+            } else {
+                usrInput_secondaryFrom = usrInput_secondaryTo = 0;
+                usrInput_secondaryFromComplement = usrInput_secondaryToComplement = 0;
+            }
+
+            getConversion(usrInput_convertedFrom, usrInput_convertedTo, hs3N_convertedFrom, hs3N_convertedTo);
+            hs3N_convertedFromComplement = asc2dnacomp[hs3N_convertedFrom];
+            hs3N_convertedToComplement   = asc2dnacomp[hs3N_convertedTo];
+            g3NTable.init(usrInput_convertedFrom, usrInput_convertedFromComplement, usrInput_secondaryFrom, usrInput_secondaryFromComplement);
 	asc2dna_3N[0][hs3N_convertedFrom] = asc2dna[hs3N_convertedTo];
 
         asc2dna_3N[0][tolower(hs3N_convertedFrom)] = asc2dna[hs3N_convertedTo];
