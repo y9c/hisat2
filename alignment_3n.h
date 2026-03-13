@@ -361,7 +361,7 @@ public:
         char buf[1024];
         for(int i=0; i<4; ++i) conversionCount[i] = unConversionCount[i] = 0;
         int readPos = 0, refPos = 0, matchCount = 0, localXM = 0;
-        outNC = 0;
+        outNC = 0; outNS = 0;
         const char* readBase = readSequence.toZBuf();
 
         // Pass 1: Determine strand/YZ
@@ -413,23 +413,27 @@ public:
                         
                         bool isPri = (outYZ == '+' && t == 1 && r == usrInput_convertedTo) ||
                                      (outYZ == '-' && t == 2 && r == usrInput_convertedToComplement);
+                        bool isSec = (outYZ == '+' && t == 3 && r == usrInput_secondaryTo) ||
+                                     (outYZ == '-' && t == 4 && r == usrInput_secondaryToComplement);
                         
-                        if (t == 1 && r == usrInput_convertedTo) conversionCount[0]++;
-                        else if (t == 2 && r == usrInput_convertedToComplement) conversionCount[1]++;
-                        else if (t == 3 && r == usrInput_secondaryTo) { conversionCount[2]++; localXM++; }
-                        else if (t == 4 && r == usrInput_secondaryToComplement) { conversionCount[3]++; localXM++; }
-                        else { localXM++; }
-                        
+                        if (isPri) {
+                            if (t == 1) conversionCount[0]++; else conversionCount[1]++;
+                        } else if (isSec) {
+                            if (t == 3) conversionCount[2]++; else conversionCount[3]++;
+                        } else {
+                            outNS++; // Substitution
+                        }
+                        localXM++;
                         outMD.append(g);
                     }
                 }
-            } else if (op == 'I') { readPos += len; outNC += len; localXM++; }
+            } else if (op == 'I') { readPos += len; outNC += len; localXM += len; }
             else if (op == 'D') {
                 if (matchCount > 0) {
                     char* end = fast_append_int(buf, matchCount); *end = '\0';
                     outMD.append(buf); matchCount = 0;
                 }
-                outMD.append('^'); outNC += len; localXM++;
+                outMD.append('^'); localXM += len;
                 for (int j = 0; j < len; j++) outMD.append(toupper(refSeqPtr[refPos++]));
             }
         }
@@ -438,13 +442,11 @@ public:
         if (isalpha(outMD[0])) outMD.insert('0', 0);
         if (isalpha(outMD[outMD.length()-1])) outMD.append('0');
 
-        int badPri = (outYZ == '+') ? conversionCount[1] : conversionCount[0];
         outYf = (outYZ == '+') ? conversionCount[0] : conversionCount[1];
         outZf = (outYZ == '+') ? unConversionCount[0] : unConversionCount[1];
         outYc = (outYZ == '+') ? conversionCount[2] : conversionCount[3];
         outZc = (outYZ == '+') ? unConversionCount[2] : unConversionCount[3];
-        outNS = localXM;
-        outNM = localXM + badPri;
+        outNM = localXM;
     }
 
     /**
@@ -622,8 +624,8 @@ public:
             itoa10<int>(Zf, buf);
             o.append(buf);
             o.append('\t');
-            // Yc, Zc, NS, NC, AP
-            snprintf(buf, sizeof(buf), "Yc:i:%d\tZc:i:%d\tNS:i:%d\tNC:i:%d\tAP:f:%.2f", Yc, Zc, NS, NC, (float)NS + (float)NC * 0.2f);
+            // Yc, Zc, NS, NC
+            snprintf(buf, sizeof(buf), "Yc:i:%d\tZc:i:%d\tNS:i:%d\tNC:i:%d", Yc, Zc, NS, NC);
             o.append(buf);
         }
         // unchanged Tags
@@ -703,7 +705,7 @@ public:
         o.append(buf);
         o.append('\t');
         // Yc, Zc, NS, NC, AP
-        snprintf(buf, sizeof(buf), "Yc:i:%d\tZc:i:%d\tNS:i:%d\tNC:i:%d\tAP:f:%.2f", repeatInfo->Yc, repeatInfo->Zc, repeatInfo->NS, repeatInfo->NC, (float)repeatInfo->NS + (float)repeatInfo->NC * 0.2f);
+        snprintf(buf, sizeof(buf), "Yc:i:%d\tZc:i:%d\tNS:i:%d\tNC:i:%d", repeatInfo->Yc, repeatInfo->Zc, repeatInfo->NS, repeatInfo->NC);
         o.append(buf);
 
         // unchanged Tags
