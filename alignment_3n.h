@@ -422,8 +422,8 @@ public:
                             if (t == 3) conversionCount[2]++; else conversionCount[3]++;
                         } else {
                             outNS++; // Substitution
+                            localXM++;
                         }
-                        localXM++;
                         outMD.append(g);
                     }
                 }
